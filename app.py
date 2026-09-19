@@ -107,14 +107,22 @@ def generate():
 
     prompt = f"Write an engaging, complete story in the {genre} genre based on this outline:\n\n{outline}"
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
-        )
-        return jsonify({"story": response.text})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    # Try these models in sequence if one is overloaded
+    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
+
+    last_error = None
+    for model_name in models_to_try:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+            return jsonify({"story": response.text})
+        except Exception as e:
+            last_error = str(e)
+            continue
+
+    return jsonify({"error": f"All models currently busy: {last_error}"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
