@@ -5,8 +5,8 @@ from google import genai
 
 app = Flask(__name__)
 
+# Render-এর Environment Variable থেকে কী নেওয়া হচ্ছে
 API_KEY = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 HTML_PAGE = """
 <!DOCTYPE html>
@@ -16,15 +16,51 @@ HTML_PAGE = """
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Story Creator</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 640px; margin: 30px auto; padding: 0 16px; background-color: #f9fafb; color: #1f2937; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      max-width: 640px; 
+      margin: 30px auto; 
+      padding: 0 16px; 
+      background-color: #f9fafb; 
+      color: #1f2937; 
+    }
     h1 { text-align: center; color: #111827; }
-    .card { background: #ffffff; padding: 24px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+    .card { 
+      background: #ffffff; 
+      padding: 24px; 
+      border-radius: 12px; 
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
+    }
     label { font-weight: 600; display: block; margin-top: 14px; margin-bottom: 6px; }
-    input, select, textarea, button { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box; font-size: 15px; }
-    button { margin-top: 18px; background-color: #2563eb; color: #ffffff; border: none; font-weight: 600; cursor: pointer; padding: 12px; border-radius: 6px; }
+    select, textarea, button { 
+      width: 100%; 
+      padding: 10px; 
+      border: 1px solid #d1d5db; 
+      border-radius: 6px; 
+      box-sizing: border-box; 
+      font-size: 15px; 
+    }
+    button { 
+      margin-top: 18px; 
+      background-color: #2563eb; 
+      color: #ffffff; 
+      border: none; 
+      font-weight: 600; 
+      cursor: pointer; 
+      padding: 12px; 
+      border-radius: 6px; 
+    }
     button:hover { background-color: #1d4ed8; }
     button:disabled { background-color: #9ca3af; cursor: not-allowed; }
-    #output { margin-top: 20px; padding: 16px; background: #f3f4f6; border-radius: 8px; white-space: pre-wrap; line-height: 1.6; display: none; }
+    #output { 
+      margin-top: 20px; 
+      padding: 16px; 
+      background: #f3f4f6; 
+      border-radius: 8px; 
+      white-space: pre-wrap; 
+      line-height: 1.6; 
+      display: none; 
+    }
   </style>
 </head>
 <body>
@@ -44,7 +80,7 @@ HTML_PAGE = """
     </select>
 
     <label for="outline">Story Outline</label>
-    <textarea id="outline" rows="5" placeholder="Write a short summary or key plot points..."></textarea>
+    <textarea id="outline" rows="5" placeholder="Write your plot or story outline here..."></textarea>
 
     <button id="generateBtn" onclick="generateStory()">Create Story</button>
 
@@ -59,12 +95,12 @@ HTML_PAGE = """
       const btn = document.getElementById("generateBtn");
 
       if (!outline) {
-        alert("Please write a story outline first.");
+        alert("Please enter a story outline first.");
         return;
       }
 
       btn.disabled = true;
-      btn.innerText = "Writing your story with Gemini...";
+      btn.innerText = "Writing story with Gemini...";
       output.style.display = "block";
       output.innerText = "Generating story, please wait...";
 
@@ -98,32 +134,44 @@ def home():
 
 @app.route("/generate", methods=["POST"])
 def generate():
-    if not client:
-        return jsonify({"error": "Gemini API key is not configured on the server."}), 500
+    if not API_KEY:
+        return jsonify({"error": "GEMINI_API_KEY environment variable is not set on Render."}), 500
 
     data = request.get_json() or {}
     genre = data.get("genre", "General")
     outline = data.get("outline", "")
 
-    prompt = f"Write an engaging, complete story in the {genre} genre based on this outline:\n\n{outline}"
+    prompt = f"Write an engaging, complete, and creative story in the {genre} genre based on this outline:\n\n{outline}"
 
-    # Retries up to 3 times if a 503 spike happens
-    last_error = None
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.6-flash",
-                contents=prompt
-            )
-            return jsonify({"story": response.text})
-        except Exception as e:
-            last_error = str(e)
-            if "503" in str(e):
-                time.sleep(2 * (attempt + 1))
-                continue
-            break
+    client = genai.Client(api_key=API_KEY)
 
-    return jsonify({"error": f"Service busy or unavailable: {last_error}"}), 500
+    # সব ভ্যালিড মডেলের তালিকা (একটায় সমস্যা হলে পরেরটা ট্রাই করবে)
+    candidate_models = [
+        "gemini-3.6-flash",
+        "gemini-2.5-flash",
+        "gemini-flash-latest",
+        "gemini-pro-latest"
+    ]
+
+    errors = []
+    for model_name in candidate_models:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+                if response and response.text:
+                    return jsonify({"story": response.text})
+            except Exception as e:
+                err_str = str(e)
+                errors.append(f"{model_name}: {err_str}")
+                if "503" in err_str:
+                    time.sleep(2)  # লোড বেশি থাকলে ২ সেকেন্ড বিরতি দিয়ে আবার চেষ্টা করবে
+                    continue
+                break  # 404 হলে সাথে সাথে পরের মডেলে চলে যাবে
+
+    return jsonify({"error": "All available models failed: " + " | ".join(errors[:2])}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
