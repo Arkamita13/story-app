@@ -1,10 +1,10 @@
 import os
+import time
 from flask import Flask, request, jsonify, render_template_string
 from google import genai
 
 app = Flask(__name__)
 
-# Reads the key securely from the server environment
 API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=API_KEY) if API_KEY else None
 
@@ -66,7 +66,7 @@ HTML_PAGE = """
       btn.disabled = true;
       btn.innerText = "Writing your story with Gemini...";
       output.style.display = "block";
-      output.innerText = "Generating...";
+      output.innerText = "Generating story, please wait...";
 
       try {
         const response = await fetch("/generate", {
@@ -107,22 +107,23 @@ def generate():
 
     prompt = f"Write an engaging, complete story in the {genre} genre based on this outline:\n\n{outline}"
 
-    # Try these models in sequence if one is overloaded
-    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
-
+    # Retries up to 3 times if a 503 spike happens
     last_error = None
-    for model_name in models_to_try:
+    for attempt in range(3):
         try:
             response = client.models.generate_content(
-                model=model_name,
+                model="gemini-3.6-flash",
                 contents=prompt
             )
             return jsonify({"story": response.text})
         except Exception as e:
             last_error = str(e)
-            continue
+            if "503" in str(e):
+                time.sleep(2 * (attempt + 1))
+                continue
+            break
 
-    return jsonify({"error": f"All models currently busy: {last_error}"}), 500
+    return jsonify({"error": f"Service busy or unavailable: {last_error}"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
